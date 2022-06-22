@@ -1,0 +1,23 @@
+wholeslidedata:
+    default:
+        image_sources:
+            path: 'not set'
+        
+        annotation_sources:
+            path: 'not set'
+            
+        image_backend: asap
+        
+        annotation_backend: 
+            attribute: AsapAnnotationParser
+
+        annotation_parser: 
+            shape: [512, 512]
+            processing_spacing: 2.0
+
+        batch_shape:
+            batch_size: 1
+            shape: [512, 512, 1]
+            y_shape: [512, 512]
+            spacing: [0.5]
+            
