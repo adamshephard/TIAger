@@ -9,4 +9,4 @@ This is done by first segmenting the tumour-stroma areas. Following this, the pi
 
 # Acknowledgement
 
-This code is made by Adam Shephard.
+This code is made by Adam Shephard and Mostafa Jahanifar, as part of the TIA Centre, University of Warwick, Coventry, UK.
