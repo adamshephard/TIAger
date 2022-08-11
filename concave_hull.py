@@ -92,7 +92,7 @@ def calc_ratio(patch):
         print('Could not calculate ratio, using 0')
         return 0
 
-def concave_hull(input_file, output_dir, input_level, output_level, level_offset, alpha, min_size, resection=False, bulk_class=1):
+def concave_hull(input_file, output_dir, input_level, output_level, level_offset, alpha, min_size, bulk_class=1):
     
     wsi = WholeSlideImage(input_file, backend='asap')
 
@@ -113,14 +113,11 @@ def concave_hull(input_file, output_dir, input_level, output_level, level_offset
     min_size_px = mm2_to_px(1.0, spacing)
     kernel_diameter = dist_to_px(500, spacing)  
 
-    if resection:
-        print('Processing in resection mode...')
-        wsi_patch_indexes = skimage.morphology.remove_small_objects(((wsi_patch == bulk_class)), min_size=mm2_to_px(0.005, spacing), connectivity=2)
-        wsi_patch[wsi_patch_indexes==False] = 0
-        kernel_diameter = dist_to_px(1000, spacing)
-        min_size_px = mm2_to_px(min_size, spacing)
-    else:
-        print('Processing in biopsy mode...')
+    # if ratio > 50.:
+    wsi_patch_indexes = skimage.morphology.remove_small_objects(((wsi_patch == bulk_class)), min_size=mm2_to_px(0.005, spacing), connectivity=2)
+    wsi_patch[wsi_patch_indexes==False] = 0
+    kernel_diameter = dist_to_px(1000, spacing)
+    min_size_px = mm2_to_px(min_size, spacing)
         
     print('spacing', spacing)
     print(f'min size in pixels {min_size_px}')
