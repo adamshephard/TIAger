@@ -23,7 +23,7 @@ ENV PATH=/venv/bin:$PATH
 RUN : \
     && apt-get update \
     && apt-get -y install curl git \
-    && curl --remote-name --location "https://github.com/computationalpathologygroup/ASAP/releases/download/ASAP-2.0-(Nightly)/ASAP-2.0-py38-Ubuntu2004.deb" \
+    && curl --remote-name --location "https://github.com/computationalpathologygroup/ASAP/releases/download/ASAP-2.1-(Nightly)/ASAP-2.1-Ubuntu2004.deb" \
     && dpkg --install ASAP-2.0-py38-Ubuntu2004.deb || true \
     && apt-get -f install --fix-missing --fix-broken --assume-yes \
     && ldconfig -v \
