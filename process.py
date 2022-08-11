@@ -58,7 +58,7 @@ class TIGERSegDet(object):
 
         """INIT"""
         tf_be_silent()
-        print(f"Tensorflow GPU available:{K._get_available_gpus()}")
+        # print(f"Tensorflow GPU available:{tf.keras.backend._get_available_gpus()}")
         print('asking tf for gpu:', tf.config.list_physical_devices('GPU'), tf.test.gpu_device_name())
 
         """Segmentation inference"""
