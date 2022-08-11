@@ -13,6 +13,8 @@ from tilscore import create_til_score
 
 import gc
 
+RESECTION = True
+
 def tf_be_silent():
     """Surpress exessive TF warnings"""
     try:
@@ -88,7 +90,8 @@ class TIGERSegDet(object):
                     segmentation_path=f'/tempoutput/segoutput/{slide_file}',
                     bulk_xml_path=f'/tempoutput/bulkoutput/{slide_file[:-4]}.xml',
                     bulk_mask_path=f'/tempoutput/bulkoutput/{slide_file}', 
-                    slide_file = slide_file              
+                    slide_file = slide_file,
+                    resection=RESECTION,              
                 )
                 shutil.copyfile(f'/tempoutput/bulkoutput/{slide_file[:-4]}.xml', f'{self.output_folder}/bulks/{slide_file[:-4]}.xml')
                 gc.collect()
