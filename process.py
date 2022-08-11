@@ -13,7 +13,7 @@ from tilscore import create_til_score
 
 import gc
 
-RESECTION = True
+RESECTION = False
 
 def tf_be_silent():
     """Surpress exessive TF warnings"""
