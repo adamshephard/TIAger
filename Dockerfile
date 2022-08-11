@@ -1,7 +1,7 @@
 FROM nvidia/cuda:11.2.0-cudnn8-devel-ubuntu20.04
 
 RUN rm /etc/apt/sources.list.d/cuda.list
-RUN rm /etc/apt/sources.list.d/nvidia-ml.lis
+RUN rm /etc/apt/sources.list.d/nvidia-ml.list
 
 ENV TZ=Europe/London
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
