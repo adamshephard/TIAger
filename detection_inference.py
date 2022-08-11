@@ -8,7 +8,7 @@ from skimage.measure import label, regionprops
 import tensorflow.compat.v1.keras.backend as K
 
 from sklearn.neighbors import KDTree
-from utils import patchBoundsByOverlap, px_to_mm, get_model
+from utils import patchBoundsByOverlap, px_to_mm, get_model, timing
 from nms import to_wsd
 from rw import open_multiresolutionimage_image
 import gc
@@ -117,6 +117,7 @@ def process_image_tile_to_detections(
             annotations.append((c1,r1))
     return annotations, output_points
 
+
 def non_max_suppression_by_distance(nuc_dict, radius: float = 4):
     conv_factor = 1000
     center_x, center_y, scores = [], [], [] 
@@ -154,6 +155,8 @@ def non_max_suppression_by_distance(nuc_dict, radius: float = 4):
 
     return output_dict
 
+
+@timing
 def detection_in_mask(image_path, tissue_mask_path, slide_file):
 
     image = open_multiresolutionimage_image(path=image_path)

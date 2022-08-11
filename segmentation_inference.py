@@ -8,7 +8,7 @@ from tensorflow.compat.v1.keras.applications import imagenet_utils
 import tensorflow.compat.v1.keras.backend as K
 from wholeslidedata.accessories.asap.imagewriter import WholeSlideMaskWriter
 
-from utils import cropping_center, get_model
+from utils import cropping_center, get_model, timing
 from rw import open_multiresolutionimage_image
 import gc
 
@@ -160,6 +160,7 @@ def process_image_tile_to_segmentation(
     return prediction.astype('uint8')
 
 
+@timing
 def seg_inference(image_path, tissue_mask_path, slide_file):
     """Loop trough the tiles in the file performing central cropping of tiles, predict them with the segModel and write them to a mask"""
     

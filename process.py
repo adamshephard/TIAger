@@ -56,6 +56,8 @@ class TIGERSegDet(object):
 
         """INIT"""
         tf_be_silent()
+        print(f"Tensorflow GPU available:{K._get_available_gpus()}")
+        print('asking tf for gpu:', tf.config.list_physical_devices('GPU'), tf.test.gpu_device_name())
 
         """Segmentation inference"""
         slide_file = [x for x in os.listdir(self.input_folder) if x.endswith('.tif')][0]
@@ -65,6 +67,7 @@ class TIGERSegDet(object):
         tissue_mask_path = os.path.join(self.input_folder_masks, tissue_mask_slide_file)
 
         try:
+            print('Start segmentation')
             seg_inference(image_path, tissue_mask_path, slide_file)
             shutil.copyfile(f'/tempoutput/segoutput/{slide_file}', f'{self.output_folder}/images/breast-cancer-segmentation-for-tils/{slide_file}')
             K.clear_session()
@@ -108,6 +111,7 @@ class TIGERSegDet(object):
         except Exception as e:
             print("Exception")
             print(e)
+            print("Writing empty files...")
             write_empty_files(
                 detection_output_path=f'{self.output_folder}/detected-lymphocytes.json',
                 tils_output_path=f'{self.output_folder}/til-score.json',

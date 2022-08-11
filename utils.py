@@ -1,3 +1,5 @@
+import time
+from functools import wraps
 import numpy as np
 import json 
 import glob
@@ -214,3 +216,15 @@ def get_model(model_type, weights_path=None):
         else:
             model.load_weights(weights_path)
     return model
+
+# https://stackoverflow.com/questions/1622943/timeit-versus-timing-decorator
+def timing(f):
+    @wraps(f)
+    def wrap(*args, **kw):
+        ts = time()
+        result = f(*args, **kw)
+        te = time()
+        print("func:%r args:[%r, %r] took: %2.4f sec" % (f.__name__, args, kw, te - ts))
+        return result
+
+    return wrap

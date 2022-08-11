@@ -1,6 +1,8 @@
-from utils import dist_to_px, get_mask_area, write_json
+from utils import dist_to_px, get_mask_area, write_json, timing
 from nms import slide_nms, to_wsd
 
+
+@timing
 def create_til_score(image_path, xml_path, bulk_path, output_path):
     """slide_level_nms"""
     points = slide_nms(image_path, xml_path, 2048)
