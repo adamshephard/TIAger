@@ -1,5 +1,8 @@
 FROM nvidia/cuda:11.2.0-cudnn8-devel-ubuntu20.04
 
+RUN rm /etc/apt/sources.list.d/cuda.list
+RUN rm /etc/apt/sources.list.d/nvidia-ml.lis
+
 ENV TZ=Europe/London
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
@@ -38,7 +41,6 @@ RUN python -m pip install -U pip
 RUN pip install git+https://github.com/DIAGNijmegen/pathology-whole-slide-data
 RUN pip install tensorflow-gpu
 RUN pip install torch==1.9.0+cu111 torchvision==0.10.0+cu111 torchaudio==0.9.0 -f https://download.pytorch.org/whl/torch_stable.html
-RUN pip install numpy==1.20.0 
 RUN pip install albumentations 
 RUN pip install pycm 
 RUN pip install tqdm

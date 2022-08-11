@@ -1,4 +1,4 @@
-import time
+from time import time
 from functools import wraps
 import numpy as np
 import json 
