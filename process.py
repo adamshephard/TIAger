@@ -13,7 +13,7 @@ import gc
 import subprocess
 
 
-RESECTION = False
+RESECTION = True
 
 
 def print_std(p: subprocess.Popen):
