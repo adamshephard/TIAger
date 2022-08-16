@@ -5,14 +5,59 @@ import tensorflow.compat.v1.keras.backend as K
 from pathlib import Path
 import shutil
 
-from segmentation_inference import seg_inference
-from detection_inference import detection_in_mask
-from utils import is_l1, write_json
+from utils import is_l1, write_json, timing
 from tumor_stroma import create_tumor_stroma_mask
 from tilscore import create_til_score
 
 import gc
+import subprocess
 
+
+def print_std(p: subprocess.Popen):
+
+    if p.stderr is not None:
+        for line in p.stderr.readlines():
+            print(line)
+
+    if p.stdout is not None:
+        for line in p.stdout.readlines():
+            print(line)
+
+@timing
+def run_segmentation(image_path, tissue_mask_path, slide_file):
+
+    print("running segmentation")
+    cmd = [
+        "python3",
+        "-u",
+        "-m",
+        "segmentation_inference",
+        f"--image_path={image_path}",
+        f"--tissue_mask_path={tissue_mask_path}",
+        f"--slide_file={slide_file}",
+    ]
+
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    p.wait()
+    print_std(p)
+
+@timing
+def run_detection(image_path, tissue_mask_path, slide_file):
+
+    print("running detection")
+    cmd = [
+        "python3",
+        "-u",
+        "-m",
+        "detection_inference",
+        f"--image_path={image_path}",
+        f"--tissue_mask_path={tissue_mask_path}",
+        f"--slide_file={slide_file}",
+    ]
+
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    p.wait()
+    print_std(p)
 
 def tf_be_silent():
     """Surpress exessive TF warnings"""
@@ -69,7 +114,7 @@ class TIGERSegDet(object):
 
         try:
             print('Start segmentation')
-            seg_inference(image_path, tissue_mask_path, slide_file)
+            run_segmentation(image_path, tissue_mask_path, slide_file)
             shutil.copyfile(f'/tempoutput/segoutput/{slide_file}', f'{self.output_folder}/images/breast-cancer-segmentation-for-tils/{slide_file}')
             K.clear_session()
             gc.collect() 
@@ -77,7 +122,7 @@ class TIGERSegDet(object):
 
             if is_l1(tissue_mask_path):
                 print("Processing slide as part of L1")
-                detection_in_mask(image_path, tissue_mask_path, slide_file)
+                run_detection(image_path, tissue_mask_path, slide_file)
                 write_json(0.0, f'{self.output_folder}/til-score.json')
                 gc.collect()
                 
@@ -96,7 +141,7 @@ class TIGERSegDet(object):
                 print('Finished tumor bulk')
 
                 print('Starting Detection')
-                detection_in_mask(image_path, f'/tempoutput/detoutput/{slide_file}', slide_file)
+                run_detection(image_path, f'/tempoutput/detoutput/{slide_file}', slide_file)
                 gc.collect()
                 print('Finished Detection')
 

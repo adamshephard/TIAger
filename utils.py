@@ -204,10 +204,10 @@ def get_model(model_type, weights_path=None):
 
     if model_type == "segmentation":
         model = efn.EfficiUNetB0(baseModel, seg_maps=3, seg_act='softmax', mode='normal')
-        if weights_path is None:
-            model.load_weights(f"/opt/algorithm/weights/Segmentation_4.h5")
-        else:
-            model.load_weights(weights_path)
+        # if weights_path is None:
+        #     model.load_weights(f"/opt/algorithm/weights/Segmentation_4.h5")
+        # else:
+        #     model.load_weights(weights_path)
         
     if model_type == "detection":
         model = efn.EfficiUNetB0(baseModel, seg_maps=1, seg_act='sigmoid')

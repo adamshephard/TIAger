@@ -8,10 +8,13 @@ from skimage.measure import label, regionprops
 import tensorflow.compat.v1.keras.backend as K
 
 from sklearn.neighbors import KDTree
-from utils import patchBoundsByOverlap, px_to_mm, get_model, timing
+from utils import patchBoundsByOverlap, px_to_mm, get_model
 from nms import to_wsd
 from rw import open_multiresolutionimage_image
 import gc
+
+from pathlib import Path
+import click
 
 
 def process_image_tile_to_detections(
@@ -156,7 +159,10 @@ def non_max_suppression_by_distance(nuc_dict, radius: float = 4):
     return output_dict
 
 
-@timing
+@click.command()
+@click.option("--image_path", type=Path, required=True)
+@click.option("--tissue_mask_path", type=Path, required=True)
+@click.option("--slide_file", type=str, required=True)
 def detection_in_mask(image_path, tissue_mask_path, slide_file):
 
     image = open_multiresolutionimage_image(path=image_path)
@@ -220,3 +226,6 @@ def detection_in_mask(image_path, tissue_mask_path, slide_file):
     K.clear_session()
     gc.collect() 
     print("finished!")
+
+if __name__ == "__main__":
+    detection_in_mask()

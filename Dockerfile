@@ -46,6 +46,7 @@ RUN pip install pycm
 RUN pip install tqdm
 RUN pip install matplotlib
 RUN pip install segmentation-models-pytorch
+RUN pip install click
 
 # RUN apt install nvidia-modprobe -y
 
