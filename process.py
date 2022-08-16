@@ -13,6 +13,9 @@ import gc
 import subprocess
 
 
+RESECTION = False
+
+
 def print_std(p: subprocess.Popen):
 
     if p.stderr is not None:
@@ -135,6 +138,7 @@ class TIGERSegDet(object):
                     bulk_xml_path=f'/tempoutput/bulkoutput/{slide_file[:-4]}.xml',
                     bulk_mask_path=f'/tempoutput/bulkoutput/{slide_file}', 
                     slide_file = slide_file,
+                    resection=RESECTION,
                 )
                 shutil.copyfile(f'/tempoutput/bulkoutput/{slide_file[:-4]}.xml', f'{self.output_folder}/bulks/{slide_file[:-4]}.xml')
                 gc.collect()
