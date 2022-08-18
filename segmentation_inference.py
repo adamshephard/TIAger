@@ -241,7 +241,7 @@ def seg_inference(image_path, tissue_mask_path, slide_file):
 
     dataset = dataset.map(lambda i, j, k: tf.py_function(func=data_loader.process_batch,
                                          inp=[i, j, k],
-                                         Tout=[np.uint8, np.float32, float]
+                                         Tout=[np.float32, np.uint8, float]
                                          ),
                 num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
