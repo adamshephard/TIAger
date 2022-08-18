@@ -6,8 +6,6 @@ import numpy as np
 import cv2
 from tqdm import tqdm
 import tensorflow as tf
-from tensorflow.compat.v1.keras.applications import imagenet_utils
-# import tensorflow.compat.v1.keras.backend as K
 from tensorflow.python.keras import backend as K
 from wholeslidedata.accessories.asap.imagewriter import WholeSlideMaskWriter
 
@@ -16,101 +14,6 @@ from data_loader import SegmentationLoader
 from rw import open_multiresolutionimage_image
 import gc
 import click
-from queue import Queue
-
-
-def prepare_patching(window_size, mask_size, dimensions, level, tissue_mask):
-    """Prepare patch information for tile processing.
-    
-    Args:
-        window_size: input patch size
-        mask_size: output patch size
-        dimenisons: slide dimensions
-        
-    """
-    win_size = window_size
-    msk_size = step_size = mask_size
-
-    def get_last_steps(length, msk_size, step_size):
-            nr_step = math.ceil((length - msk_size) / step_size)
-            last_step = (nr_step + 1) * step_size
-            return int(last_step), int(nr_step + 1)
-
-    im_h = dimensions[1]
-    im_w = dimensions[0]
-    win_h = win_size[0]
-    win_w = win_size[1]
-    msk_h = step_h = msk_size[0]
-    msk_w = step_w = msk_size[1]
-
-    last_h, _ = get_last_steps(im_h, msk_h, step_h)
-    last_w, _ = get_last_steps(im_w, msk_w, step_w)
-
-    diff = win_h - step_h
-    padt = padl = diff // 2
-    padb = last_h + win_h - im_h
-    padr = last_w + win_w - im_w
-
-    # generating subpatches index from orginal
-    coord_y = np.arange(0, last_h, step_h, dtype=np.int32)
-    coord_x = np.arange(0, last_w, step_w, dtype=np.int32)
-    row_idx = np.arange(0, coord_y.shape[0], dtype=np.int32)
-    col_idx = np.arange(0, coord_x.shape[0], dtype=np.int32)
-    coord_y, coord_x = np.meshgrid(coord_y, coord_x)
-    row_idx, col_idx = np.meshgrid(row_idx, col_idx)
-    coord_y = coord_y.flatten()
-    coord_x = coord_x.flatten()
-    row_idx = row_idx.flatten()
-    col_idx = col_idx.flatten()
-    #
-    patch_info = np.stack([coord_y, coord_x, row_idx, col_idx], axis=-1)
-
-    # all_patch_info = []
-    # loop over image and get segmentation with overlap
-    queue_patches = Queue()
-    for info in patch_info:
-        pad_t = 0
-        pad_b = 0
-        pad_l = 0
-        pad_r = 0
-        y = info[0] - padt
-        x = info[1] - padl
-        y1 = info[0]
-        x1 = info[1]
-        w = win_w
-        h = win_h
-        if x < 0:
-            pad_l = -int(x)
-            pad_r = 0
-            w = win_w + x
-            x1 = x = 0
-        elif x >= im_w:
-            pad_l = 0
-            pad_r = int(x - im_w)
-            x = im_w - 1
-            w = win_w - pad_r
-
-        if y < 0:
-            pad_t = -int(y)
-            pad_b = 0
-            h = win_h + y
-            y1 = y = 0
-        elif y >= im_h:
-            pad_t = 0
-            pad_b = int(y - im_h)
-            y = im_h - 1
-            h = win_h - pad_b
-
-        tissue_mask_tile = tissue_mask.getUCharPatch(
-            startX=int(x*2), startY=int(y*2), width=int(w), height=int(h), level=level
-        ).squeeze()
-
-        if not np.any(tissue_mask_tile):
-            continue
-
-        queue_patches.put((int(x), int(y), int(w), int(h), int(x1), int(y1), pad_t, pad_b, pad_l, pad_r))
-    # return all_patch_info
-    return queue_patches
 
 
 def postprocess_batch(
@@ -149,41 +52,6 @@ def postprocess_batch(
         prediction_final[:,:, id] = cv2.resize(pred, (orig_dims[1], orig_dims[0]), interpolation=cv2.INTER_NEAREST)
     # prediction = cv2.resize(prediction, (orig_dims[1], orig_dims[0]), interpolation=cv2.INTER_NEAREST)
     return prediction_final.astype('uint8')
-
-
-def get_batch(batchsize, queue_patches, image, tissue_mask, level, patch_size):
-    batch_images = np.zeros((batchsize, patch_size[0], patch_size[1], 3))
-    batch_tissue = np.zeros((batchsize, patch_size[0], patch_size[1]))
-    batch_x = np.zeros(batchsize, dtype=int)
-    batch_y = np.zeros(batchsize, dtype=int)
-    for i_batch in range(batchsize):
-        if queue_patches.qsize() > 0:
-            x, y, w, h, batch_x[i_batch], batch_y[i_batch], pad_t, pad_b, pad_l, pad_r = queue_patches.get()
-            x, y = x*2, y*2
-
-            tissue_mask_tile = tissue_mask.getUCharPatch(
-                startX=x, startY=y, width=w, height=h, level=level
-            ).squeeze()
-
-            # if not np.any(tissue_mask_tile):
-            #     continue
-
-            image_tile = image.getUCharPatch(
-                startX=x, startY=y, width=w, height=h, level=level
-            )
-
-            image_tile = np.lib.pad(image_tile, ((pad_t, pad_b), (pad_l, pad_r), (0, 0)), "reflect").astype('uint8')
-            tissue_mask_tile = np.lib.pad(tissue_mask_tile, ((pad_t, pad_b), (pad_l, pad_r)), "reflect").astype('uint8')
-        
-            batch_images[i_batch] = imagenet_utils.preprocess_input(image_tile, mode='torch')
-            batch_tissue[i_batch] = tissue_mask_tile
-        else:
-            batch_images = batch_images[:i_batch]
-            batch_tissue = batch_tissue[:i_batch]
-            batch_x = batch_x[:i_batch]
-            batch_y = batch_y[:i_batch]
-            break
-    return batch_images, batch_tissue, batch_x, batch_y
 
 
 @click.command()

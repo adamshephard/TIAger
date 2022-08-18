@@ -134,34 +134,16 @@ class SegmentationLoader():
             startX=x, startY=y, width=w, height=h, level=self.level
         ).squeeze()
 
-        # # if not np.any(tissue_mask_tile):
-        # #     continue
-
         image_tile = self.image.getUCharPatch(
             startX=x, startY=y, width=w, height=h, level=self.level
         )
 
-        # image_tile = np.lib.pad(image_tile, ((pad_t, pad_b), (pad_l, pad_r), (0, 0)), "reflect").astype('uint8')
-        # tissue_mask_tile = np.lib.pad(tissue_mask_tile, ((pad_t, pad_b), (pad_l, pad_r)), "reflect").astype('uint8')
-    
-        # patch = imagenet_utils.preprocess_input(image_tile, mode='torch')
-        # tissue_patch = tissue_mask_tile.astype('uint8')
-
-        # return patch, tissue_patch, np.array((x1, y1))
         return image_tile, tissue_mask_tile, patch_info
 
     @staticmethod
     def process_batch(image_tile, tissue_mask_tile, patch_info):
         x, y, w, h, x1, y1, pad_t, pad_b, pad_l, pad_r = np.array(patch_info, dtype=int)
         x, y = x*2, y*2
-
-        # tissue_mask_tile = tissue_mask.getUCharPatch(
-        #     startX=x, startY=y, width=w, height=h, level=level
-        # ).squeeze()
-
-        # image_tile = image.getUCharPatch(
-        #     startX=x, startY=y, width=w, height=h, level=level
-        # )
 
         image_tile = np.lib.pad(image_tile, ((pad_t, pad_b), (pad_l, pad_r), (0, 0)), "reflect").astype('uint8')
         tissue_mask_tile = np.lib.pad(tissue_mask_tile, ((pad_t, pad_b), (pad_l, pad_r)), "reflect").astype('uint8')
