@@ -259,9 +259,6 @@ def seg_inference(image_path, tissue_mask_path, slide_file):
 
     for batch in tqdm(batched_dataset, total=n_batches, desc=f'Processing'):
         images, tissue, coords = batch
-        print('images', images.shape, images.dtype)
-        print('tissue', tissue.shape, tissue.dtype)
-        print('coords', coords.shape, coords.dtype)
         pred_tum_ens = np.zeros_like(images[...,0]).astype('float32')
         pred_stroma_ens = np.zeros_like(images[...,0]).astype('float32')
         for idx, weights in enumerate(weight_paths):
