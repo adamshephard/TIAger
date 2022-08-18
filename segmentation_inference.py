@@ -1,15 +1,18 @@
+from doctest import OutputChecker
 from pathlib import Path
 
 import math
 import numpy as np
 import cv2
 from tqdm import tqdm
+import tensorflow as tf
 from tensorflow.compat.v1.keras.applications import imagenet_utils
 # import tensorflow.compat.v1.keras.backend as K
 from tensorflow.python.keras import backend as K
 from wholeslidedata.accessories.asap.imagewriter import WholeSlideMaskWriter
 
 from utils import cropping_center, get_model
+from data_loader import SegmentationLoader
 from rw import open_multiresolutionimage_image
 import gc
 import click
@@ -204,7 +207,8 @@ def seg_inference(image_path, tissue_mask_path, slide_file):
     level = 1
     mask_size = (256,256)
     tile_size = (512,512)
-    
+    batch_size = 16
+
     # create writers
     segmentation_writer = WholeSlideMaskWriter()
     segmentation_writer.write(
@@ -215,12 +219,36 @@ def seg_inference(image_path, tissue_mask_path, slide_file):
     )
     print("Created segmentation writer")
 
-    dimensions = (dimensions[0]//2, dimensions[1]//2)
-    spacing = (spacing[0]*2, spacing[1]*2)
-    print(f'dims: {dimensions} \n spacing: {spacing}')
-    patch_info = prepare_patching(tile_size, mask_size, dimensions, level, tissue_mask)
-    batch_size = 16
-    n_batches = int(np.ceil(patch_info.qsize() / batch_size))
+    data_loader = SegmentationLoader(
+        image_path,
+        tissue_mask_path,
+        slide_file
+    )
+
+    def make_gen_callable(_gen):
+        def gen():
+            for x,y,z in _gen:
+                yield x,y,z
+        return gen
+
+    data_loader_ = make_gen_callable(data_loader)
+
+    dataset = tf.data.Dataset.from_generator(
+        generator=data_loader_, 
+        output_types=(np.uint8,np.float32, float),
+        # output_shapes=((512,512), (512,512,3), (2))
+    )
+
+    dataset = dataset.map(lambda i, j, k: tf.py_function(func=data_loader.process_batch,
+                                         inp=[i, j, k],
+                                         Tout=[np.uint8, np.float32, float]
+                                         ),
+                num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
+    batched_dataset = dataset.batch(batch_size)
+    print("Created segmentation loader")
+
+    n_batches = int(len(data_loader) / batch_size)   
 
     segModel = get_model('segmentation')
     weight_paths = [
@@ -228,17 +256,17 @@ def seg_inference(image_path, tissue_mask_path, slide_file):
         "/opt/algorithm/weights/2_seg4.h5",
         "/opt/algorithm/weights/3_seg3.h5",
     ]
-        # for info in tqdm(patch_info):
-    # patch_info_all = [patch_info for _ in weight_paths]
 
-    for b in tqdm(range(n_batches), desc=f'Processing'):
-        batch, tissue_batch, x_coords, y_coords = get_batch(batch_size, patch_info, image, tissue_mask, level, tile_size)
-        pred_tum_ens = np.zeros_like(batch[...,0])
-        pred_stroma_ens = np.zeros_like(batch[...,0])
+    for batch in tqdm(batched_dataset, total=n_batches, desc=f'Processing'):
+        images, tissue, coords = batch
+        print('images', images.shape, images.dtype)
+        print('tissue', tissue.shape, tissue.dtype)
+        print('coords', coords.shape, coords.dtype)
+        pred_tum_ens = np.zeros_like(images[...,0]).astype('float32')
+        pred_stroma_ens = np.zeros_like(images[...,0]).astype('float32')
         for idx, weights in enumerate(weight_paths):
             segModel.load_weights(weights)
-            raw_preds = segModel.predict_on_batch(batch)
-            # np.save(f'/tempoutput/segoutput/104S_{b}_{idx}.npy', raw_preds)
+            raw_preds = segModel.predict_on_batch(images)
             pred_tum = raw_preds[:, :, :, 1]
             pred_stroma = raw_preds[:, :, :, 2]
             pred_tum_ens += pred_tum
@@ -246,11 +274,10 @@ def seg_inference(image_path, tissue_mask_path, slide_file):
 
         pred_tum_ens = pred_tum_ens / len(weight_paths)
         pred_stroma_ens = pred_stroma_ens / len(weight_paths)
-        segmentation_masks = postprocess_batch(pred_tum_ens, pred_stroma_ens, tissue_batch)
-        for idx in range(len(x_coords)):
+        segmentation_masks = postprocess_batch(pred_tum_ens, pred_stroma_ens, tissue.numpy())
+        for idx in range(len(coords)):
             segmentation_mask = segmentation_masks[:,:,idx].astype('uint8')
-            # np.save(f'/tempoutput/segoutput/104S_{int((b-1)*batch_size+idx)}.npy', segmentation_mask)
-            x1, y1 = x_coords[idx], y_coords[idx]
+            x1, y1 = coords[idx].numpy()
             segmentation_writer.write_tile(tile=segmentation_mask, coordinates=(int(x1*2), int(y1*2))) 
 
     print("Saving segmentation...")
