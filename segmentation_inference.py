@@ -90,30 +90,35 @@ def seg_inference(image_path, tissue_mask_path, slide_file):
     data_loader = SegmentationLoader(
         image_path,
         tissue_mask_path,
-        slide_file
+        slide_file,
+        batch_size=16,
+        num_workers=8
     )
 
-    def make_gen_callable(_gen):
-        def gen():
-            for x,y,z in _gen:
-                yield x,y,z
-        return gen
+    # def make_gen_callable(_gen):
+    #     def gen():
+    #         for x,y,z in _gen:
+    #             yield x,y,z
+    #     return gen
 
-    data_loader_ = make_gen_callable(data_loader)
+    # data_loader_ = make_gen_callable(data_loader)
 
-    dataset = tf.data.Dataset.from_generator(
-        generator=data_loader_, 
-        output_types=(np.uint8,np.float32, float),
-        # output_shapes=((512,512), (512,512,3), (2))
-    )
+    # dataset = tf.data.Dataset.from_generator(
+    #     generator=data_loader_, 
+    #     output_types=(np.uint8,np.float32, float),
+    #     # output_shapes=((512,512), (512,512,3), (2))
+    # )
 
-    dataset = dataset.map(lambda i, j, k: tf.py_function(func=data_loader.process_batch,
-                                         inp=[i, j, k],
-                                         Tout=[np.float32, np.uint8, float]
-                                         ),
-                num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    # dataset = dataset.map(lambda i, j, k: tf.py_function(func=data_loader.process_batch,
+    #                                      inp=[i, j, k],
+    #                                      Tout=[np.float32, np.uint8, float]
+    #                                      ),
+    #             num_parallel_calls=8) #tf.data.experimental.AUTOTUNE)
 
-    batched_dataset = dataset.batch(batch_size)
+    # batched_dataset = dataset.batch(batch_size)
+    # batched_dataset = batched_dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+
+    batched_dataset = data_loader
     print("Created segmentation loader")
 
     n_batches = int(len(data_loader) / batch_size)   
@@ -139,10 +144,12 @@ def seg_inference(image_path, tissue_mask_path, slide_file):
 
         pred_tum_ens = pred_tum_ens / len(weight_paths)
         pred_stroma_ens = pred_stroma_ens / len(weight_paths)
-        segmentation_masks = postprocess_batch(pred_tum_ens, pred_stroma_ens, tissue.numpy())
+        # segmentation_masks = postprocess_batch(pred_tum_ens, pred_stroma_ens, tissue.numpy())
+        segmentation_masks = postprocess_batch(pred_tum_ens, pred_stroma_ens, tissue)
         for idx in range(len(coords)):
             segmentation_mask = segmentation_masks[:,:,idx].astype('uint8')
-            x1, y1 = coords[idx].numpy()
+            # x1, y1 = coords[idx].numpy()
+            x1, y1 = coords[idx]
             segmentation_writer.write_tile(tile=segmentation_mask, coordinates=(int(x1*2), int(y1*2))) 
 
     print("Saving segmentation...")

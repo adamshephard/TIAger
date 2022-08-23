@@ -163,8 +163,8 @@ class TIGERSegDet(object):
                 tils_output_path=f'{self.output_folder}/til-score.json',
             )
             print(traceback.format_exc())
-        finally:
-            delete_tmp_files('/tempoutput')
+        # finally:
+            # delete_tmp_files('/tempoutput')
         print('Finished')
         print("--------------")
 
