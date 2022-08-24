@@ -85,7 +85,7 @@ ENTRYPOINT python -u -m process $0 $@s
 LABEL nl.diagnijmegen.rse.algorithm.name=bcsegdetrumc
 
 # These labels are required and describe what kind of hardware your algorithm requires to run.
-LABEL nl.diagnijmegen.rse.algorithm.hardware.cpu.count=4
+LABEL nl.diagnijmegen.rse.algorithm.hardware.cpu.count=8
 LABEL nl.diagnijmegen.rse.algorithm.hardware.cpu.capabilities=('avx',)
 LABEL nl.diagnijmegen.rse.algorithm.hardware.memory=30G
 LABEL nl.diagnijmegen.rse.algorithm.hardware.gpu.count=1
