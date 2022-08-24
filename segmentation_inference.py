@@ -1,25 +1,21 @@
-from multiprocessing import Pool, freeze_support, RLock
+from multiprocessing import Pool, RLock, Manager
 from pathlib import Path
 
-import os
 import math
 import numpy as np
 import cv2
 from tqdm import tqdm
-import tensorflow as tf
 from tensorflow.python.keras import backend as K
 from wholeslidedata.accessories.asap.imagewriter import WholeSlideMaskWriter
 
 from utils import cropping_center, get_model
-from data_loader import SegmentationLoader
 from rw import open_multiresolutionimage_image
 import gc
 import click
 from tensorflow.compat.v1.keras.applications import imagenet_utils
 
-import multiprocessing
 
-def prepare_patching(window_size, mask_size, dimensions, level, tissue_mask, nr_queues):
+def prepare_patching(window_size, mask_size, dimensions, level, tissue_mask):
     """Prepare patch information for tile processing.
     
     Args:
@@ -65,11 +61,9 @@ def prepare_patching(window_size, mask_size, dimensions, level, tissue_mask, nr_
     #
     patch_info = np.stack([coord_y, coord_x, row_idx, col_idx], axis=-1)
 
-    # all_patch_info = []
     # loop over image and get segmentation with overlap
-    # all_queues = [Queue() for _ in range(nr_queues)]
-    manager = multiprocessing.Manager()
-    all_queues = manager.Queue()
+    manager = Manager()
+    queue = manager.Queue()
 
     for info in patch_info:
         pad_t = 0
@@ -111,11 +105,8 @@ def prepare_patching(window_size, mask_size, dimensions, level, tissue_mask, nr_
         if not np.any(tissue_mask_tile):
             continue
 
-        # for idx in range(nr_queues):
-            # all_queues[idx].put((int(x), int(y), int(w), int(h), int(x1), int(y1), pad_t, pad_b, pad_l, pad_r))
-        all_queues.put((int(x), int(y), int(w), int(h), int(x1), int(y1), pad_t, pad_b, pad_l, pad_r))   
-    # return all_patch_info
-    return all_queues
+        queue.put((int(x), int(y), int(w), int(h), int(x1), int(y1), pad_t, pad_b, pad_l, pad_r))   
+    return queue
 
 def get_batch(batchsize, queue_patches, image, tissue_mask, level, patch_size):
     batch_images = np.zeros((batchsize, patch_size[0], patch_size[1], 3))
@@ -243,7 +234,7 @@ def seg_inference(image_path, tissue_mask_path, slide_file):
         "/opt/algorithm/weights/3_seg3.h5",
     ]
 
-    patch_info_all = prepare_patching(tile_size, mask_size, dimensions2, level, tissue_mask, len(weight_paths))
+    patch_info_all = prepare_patching(tile_size, mask_size, dimensions2, level, tissue_mask)
     batch_size = 32
     n_batches = int(np.ceil(patch_info_all.qsize() / batch_size))
 
