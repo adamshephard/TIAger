@@ -1,11 +1,10 @@
+from multiprocessing import Pool, RLock, Manager
 from pathlib import Path
 
 import math
 import numpy as np
 import cv2
 from tqdm import tqdm
-from tensorflow.compat.v1.keras.applications import imagenet_utils
-# import tensorflow.compat.v1.keras.backend as K
 from tensorflow.python.keras import backend as K
 from wholeslidedata.accessories.asap.imagewriter import WholeSlideMaskWriter
 
@@ -13,7 +12,7 @@ from utils import cropping_center, get_model
 from rw import open_multiresolutionimage_image
 import gc
 import click
-from queue import Queue
+from tensorflow.compat.v1.keras.applications import imagenet_utils
 
 
 def prepare_patching(window_size, mask_size, dimensions, level, tissue_mask):
@@ -62,9 +61,10 @@ def prepare_patching(window_size, mask_size, dimensions, level, tissue_mask):
     #
     patch_info = np.stack([coord_y, coord_x, row_idx, col_idx], axis=-1)
 
-    # all_patch_info = []
     # loop over image and get segmentation with overlap
-    queue_patches = Queue()
+    manager = Manager()
+    queue = manager.Queue()
+
     for info in patch_info:
         pad_t = 0
         pad_b = 0
@@ -105,48 +105,8 @@ def prepare_patching(window_size, mask_size, dimensions, level, tissue_mask):
         if not np.any(tissue_mask_tile):
             continue
 
-        queue_patches.put((int(x), int(y), int(w), int(h), int(x1), int(y1), pad_t, pad_b, pad_l, pad_r))
-    # return all_patch_info
-    return queue_patches
-
-
-def postprocess_batch(
-    pred_tum_ens: np.ndarray, pred_stroma_ens: np.ndarray, tissue_masks: np.ndarray
-) -> np.ndarray:
-    """Post processing a batch of tiles from a multiresolution image for segmentation purposes.
-    Args:
-        pred_tum_ens (np.ndarray): Predicted tumor mask (from ensembling)
-
-        pred_stroma_ense (np.ndarray): Predicted stroma mask (from ensembling)
-
-    Returns:
-        np.ndarray: [batch of predictions]
-    """
-
-    orig_dims = pred_tum_ens.shape[1:3]
-    open_disk_r = 10
-    # Post-processing prediction (for segmentation)
-    tum_thresh = 0.20
-    stroma_thresh = 0.35
-    pred_tum_mask = pred_tum_ens>tum_thresh
-    # pred_tum_mask = cv2.morphologyEx(np.uint8(pred_tum_mask), cv2.MORPH_OPEN, np.ones((open_disk_r,open_disk_r)))
-    for idx, pred_t in enumerate(pred_tum_mask):
-        pred_tum_mask[idx,:,:] = cv2.morphologyEx(np.uint8(pred_t), cv2.MORPH_OPEN, np.ones((open_disk_r,open_disk_r)))
-    pred_stroma_mask = pred_stroma_ens>stroma_thresh
-    prediction = np.zeros_like(pred_stroma_ens)
-    # Aggregating both tumour and stroma in one map
-    prediction[pred_stroma_mask>0] = 2
-    prediction[pred_tum_mask>0] = 1
-    seg_map = prediction
-    seg_map = seg_map * tissue_masks
-    seg_map = cropping_center(seg_map, (orig_dims[0]//2,orig_dims[1]//2), batch=True)
-    prediction = seg_map.astype('uint8')
-    prediction_final = np.zeros((orig_dims[0], orig_dims[1], seg_map.shape[0]))
-    for id, pred in enumerate(prediction):
-        prediction_final[:,:, id] = cv2.resize(pred, (orig_dims[1], orig_dims[0]), interpolation=cv2.INTER_NEAREST)
-    # prediction = cv2.resize(prediction, (orig_dims[1], orig_dims[0]), interpolation=cv2.INTER_NEAREST)
-    return prediction_final.astype('uint8')
-
+        queue.put((int(x), int(y), int(w), int(h), int(x1), int(y1), pad_t, pad_b, pad_l, pad_r))   
+    return queue
 
 def get_batch(batchsize, queue_patches, image, tissue_mask, level, patch_size):
     batch_images = np.zeros((batchsize, patch_size[0], patch_size[1], 3))
@@ -182,6 +142,65 @@ def get_batch(batchsize, queue_patches, image, tissue_mask, level, patch_size):
             break
     return batch_images, batch_tissue, batch_x, batch_y
 
+def postprocess_batch(
+    pred_tum_ens: np.ndarray, pred_stroma_ens: np.ndarray, tissue_masks: np.ndarray
+) -> np.ndarray:
+    """Post processing a batch of tiles from a multiresolution image for segmentation purposes.
+    Args:
+        pred_tum_ens (np.ndarray): Predicted tumor mask (from ensembling)
+
+        pred_stroma_ense (np.ndarray): Predicted stroma mask (from ensembling)
+
+    Returns:
+        np.ndarray: [batch of predictions]
+    """
+
+    orig_dims = pred_tum_ens.shape[1:3]
+    open_disk_r = 10
+    # Post-processing prediction (for segmentation)
+    tum_thresh = 0.20
+    stroma_thresh = 0.35
+    pred_tum_mask = pred_tum_ens>tum_thresh
+    for idx, pred_t in enumerate(pred_tum_mask):
+        pred_tum_mask[idx,:,:] = cv2.morphologyEx(np.uint8(pred_t), cv2.MORPH_OPEN, np.ones((open_disk_r,open_disk_r)))
+    pred_stroma_mask = pred_stroma_ens>stroma_thresh
+    prediction = np.zeros_like(pred_stroma_ens)
+    # Aggregating both tumour and stroma in one map
+    prediction[pred_stroma_mask>0] = 2
+    prediction[pred_tum_mask>0] = 1
+    seg_map = prediction
+    seg_map = seg_map * tissue_masks
+    seg_map = cropping_center(seg_map, (orig_dims[0]//2,orig_dims[1]//2), batch=True)
+    prediction = seg_map.astype('uint8')
+    prediction_final = []
+    for pred in prediction:
+        prediction_final.append(cv2.resize(pred, (orig_dims[1], orig_dims[0]), interpolation=cv2.INTER_NEAREST).astype('uint8'))
+    return prediction_final
+
+
+def load_and_process_batch(output, n_weights):
+    accum_raw_pred, tissue, x_coords, y_coords = output
+    pred_tum_ens = np.zeros_like(tissue).astype(np.float32)
+    pred_stroma_ens = np.zeros_like(tissue).astype(np.float32)
+    for idx in range(n_weights):
+        raw_preds = accum_raw_pred[idx]
+        pred_tum = raw_preds[:, :, :, 0]
+        pred_stroma = raw_preds[:, :, :, 1]
+        pred_tum_ens += pred_tum
+        pred_stroma_ens += pred_stroma
+
+    pred_tum_ens = pred_tum_ens / n_weights
+    pred_stroma_ens = pred_stroma_ens / n_weights
+    segmentation_masks = postprocess_batch(pred_tum_ens, pred_stroma_ens, tissue)
+    return segmentation_masks, x_coords, y_coords
+
+
+def preprocess_batch(image_path, tissue_mask_path, batch_size, patch_info, level, tile_size):
+    image = open_multiresolutionimage_image(path=image_path)
+    tissue_mask = open_multiresolutionimage_image(path=tissue_mask_path)
+    images, tissue, x_coords, y_coords = get_batch(batch_size, patch_info, image, tissue_mask, level, tile_size)
+    return [images, tissue, x_coords, y_coords]
+
 
 @click.command()
 @click.option("--image_path", type=Path, required=True)
@@ -204,7 +223,21 @@ def seg_inference(image_path, tissue_mask_path, slide_file):
     level = 1
     mask_size = (256,256)
     tile_size = (512,512)
-    
+
+    dimensions2 = (dimensions[0]//2, dimensions[1]//2)
+    print(f'dims: {dimensions} \n spacing: {spacing}')
+
+    segModel = get_model('segmentation')
+    weight_paths = [
+        "/opt/algorithm/weights/1_seg1.h5",
+        "/opt/algorithm/weights/2_seg4.h5",
+        "/opt/algorithm/weights/3_seg3.h5",
+    ]
+
+    patch_info_all = prepare_patching(tile_size, mask_size, dimensions2, level, tissue_mask)
+    batch_size = 32
+    n_batches = int(np.ceil(patch_info_all.qsize() / batch_size))
+
     # create writers
     segmentation_writer = WholeSlideMaskWriter()
     segmentation_writer.write(
@@ -214,49 +247,79 @@ def seg_inference(image_path, tissue_mask_path, slide_file):
         tile_shape=tile_size,
     )
     print("Created segmentation writer")
+    
+    # add loop with batches of batches....
+    batches_per_loop = 35
+    if n_batches > batches_per_loop:
+        n_loops = int(np.ceil(n_batches/batches_per_loop))
+        batch_no = 0
+        for l in range(n_loops):
+            if l == n_loops - 1:
+                n_iters = n_batches - (l*batches_per_loop)
+            else:
+                n_iters = batches_per_loop
 
-    dimensions = (dimensions[0]//2, dimensions[1]//2)
-    spacing = (spacing[0]*2, spacing[1]*2)
-    print(f'dims: {dimensions} \n spacing: {spacing}')
-    patch_info = prepare_patching(tile_size, mask_size, dimensions, level, tissue_mask)
-    batch_size = 16
-    n_batches = int(np.ceil(patch_info.qsize() / batch_size))
+            pbar_format = "Pre-processing cases... |{bar}| {n_fmt}/{total_fmt}[{elapsed}<{remaining},{rate_fmt}]"
+            pbarx = tqdm(
+                total=n_iters, bar_format=pbar_format, ascii=True, position=0
+            )
 
-    segModel = get_model('segmentation')
-    weight_paths = [
-        "/opt/algorithm/weights/1_seg1.h5",
-        "/opt/algorithm/weights/2_seg4.h5",
-        "/opt/algorithm/weights/3_seg3.h5",
-    ]
-        # for info in tqdm(patch_info):
-    # patch_info_all = [patch_info for _ in weight_paths]
+            # Start multi-processing
+            pool = Pool(processes=8, initargs=(RLock(),), initializer=tqdm.set_lock)
 
-    for b in tqdm(range(n_batches), desc=f'Processing'):
-        batch, tissue_batch, x_coords, y_coords = get_batch(batch_size, patch_info, image, tissue_mask, level, tile_size)
-        pred_tum_ens = np.zeros_like(batch[...,0])
-        pred_stroma_ens = np.zeros_like(batch[...,0])
-        for idx, weights in enumerate(weight_paths):
-            segModel.load_weights(weights)
-            raw_preds = segModel.predict_on_batch(batch)
-            # np.save(f'/tempoutput/segoutput/104S_{b}_{idx}.npy', raw_preds)
-            pred_tum = raw_preds[:, :, :, 1]
-            pred_stroma = raw_preds[:, :, :, 2]
-            pred_tum_ens += pred_tum
-            pred_stroma_ens += pred_stroma
+            def pbarx_update(*a):
+                pbarx.update()
 
-        pred_tum_ens = pred_tum_ens / len(weight_paths)
-        pred_stroma_ens = pred_stroma_ens / len(weight_paths)
-        segmentation_masks = postprocess_batch(pred_tum_ens, pred_stroma_ens, tissue_batch)
-        for idx in range(len(x_coords)):
-            segmentation_mask = segmentation_masks[:,:,idx].astype('uint8')
-            # np.save(f'/tempoutput/segoutput/104S_{int((b-1)*batch_size+idx)}.npy', segmentation_mask)
-            x1, y1 = x_coords[idx], y_coords[idx]
-            segmentation_writer.write_tile(tile=segmentation_mask, coordinates=(int(x1*2), int(y1*2))) 
+            jobs = [pool.apply_async(preprocess_batch, args=(image_path, tissue_mask_path, batch_size, patch_info_all, level, tile_size), callback=pbarx_update) for _ in range(n_iters)]
+            pool.close()
+            batches = [job.get() for job in jobs]
+            pbarx.close()
 
-    print("Saving segmentation...")
-    # save segmentation and detection
+            loop_raw_preds = []
+            accumulated_output = []
+            for idx, weights in enumerate(weight_paths):
+                segModel.load_weights(weights)
+                for b in tqdm(range(n_iters), desc=f'Segmenting loop {l+1}/{n_loops} with weights: {weights}'):
+                    images, tissue, x_coords, y_coords = batches[b]
+                    raw_preds = segModel.predict_on_batch(images)
+                    loop_raw_preds.append(raw_preds[...,1:])
+                    if idx == len(weight_paths)-1:
+                        accum_raw_pred = [loop_raw_preds[i*n_iters+b] for i in range(len(weight_paths))]
+                        accumulated_output.append([accum_raw_pred, tissue.astype('uint8'), x_coords, y_coords])
+
+            del loop_raw_preds, jobs, batches
+            pbar_format = "Post-processing cases... |{bar}| {n_fmt}/{total_fmt}[{elapsed}<{remaining},{rate_fmt}]"
+            pbarx = tqdm(
+                total=n_iters, bar_format=pbar_format, ascii=True, position=0
+            )
+
+            # Start multi-processing
+            pool = Pool(processes=8, initargs=(RLock(),), initializer=tqdm.set_lock)
+
+            def pbarx_update(*a):
+                pbarx.update()
+
+            jobs = [pool.apply_async(load_and_process_batch, args=(n, len(weight_paths)), callback=pbarx_update) for n in accumulated_output]
+            pool.close()
+            result_list = [job.get() for job in jobs]
+            pbarx.close()
+
+            del accumulated_output, jobs
+
+            for results in tqdm(result_list, desc='Saving segmentation...'):
+                seg_masks, x_coords, y_coords = results
+                for idx in range(len(x_coords)):
+                    x1, y1 = x_coords[idx], y_coords[idx]
+                    segmentation_writer.write_tile(tile=seg_masks[idx], coordinates=(int(x1*2), int(y1*2)))
+            
+            del result_list
+
+            batch_no += 1
+            if batch_no % batches_per_loop == 0:
+                break
+
+
     segmentation_writer.save()
-    del segmentation_writer
     K.clear_session()
     gc.collect() 
 
