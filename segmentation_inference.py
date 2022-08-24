@@ -17,8 +17,7 @@ import gc
 import click
 from tensorflow.compat.v1.keras.applications import imagenet_utils
 
-from queue import Queue
-
+import multiprocessing
 
 def prepare_patching(window_size, mask_size, dimensions, level, tissue_mask, nr_queues):
     """Prepare patch information for tile processing.
@@ -68,7 +67,9 @@ def prepare_patching(window_size, mask_size, dimensions, level, tissue_mask, nr_
 
     # all_patch_info = []
     # loop over image and get segmentation with overlap
-    all_queues = [Queue() for _ in range(nr_queues)]
+    # all_queues = [Queue() for _ in range(nr_queues)]
+    manager = multiprocessing.Manager()
+    all_queues = manager.Queue()
 
     for info in patch_info:
         pad_t = 0
@@ -110,8 +111,9 @@ def prepare_patching(window_size, mask_size, dimensions, level, tissue_mask, nr_
         if not np.any(tissue_mask_tile):
             continue
 
-        for idx in range(nr_queues):
-            all_queues[idx].put((int(x), int(y), int(w), int(h), int(x1), int(y1), pad_t, pad_b, pad_l, pad_r))
+        # for idx in range(nr_queues):
+            # all_queues[idx].put((int(x), int(y), int(w), int(h), int(x1), int(y1), pad_t, pad_b, pad_l, pad_r))
+        all_queues.put((int(x), int(y), int(w), int(h), int(x1), int(y1), pad_t, pad_b, pad_l, pad_r))   
     # return all_patch_info
     return all_queues
 
@@ -202,6 +204,13 @@ def load_and_process_batch(output, n_weights):
     return segmentation_masks, x_coords, y_coords
 
 
+def preprocess_batch(image_path, tissue_mask_path, batch_size, patch_info, level, tile_size):
+    image = open_multiresolutionimage_image(path=image_path)
+    tissue_mask = open_multiresolutionimage_image(path=tissue_mask_path)
+    images, tissue, x_coords, y_coords = get_batch(batch_size, patch_info, image, tissue_mask, level, tile_size)
+    return [images, tissue, x_coords, y_coords]
+
+
 @click.command()
 @click.option("--image_path", type=Path, required=True)
 @click.option("--tissue_mask_path", type=Path, required=True)
@@ -236,7 +245,7 @@ def seg_inference(image_path, tissue_mask_path, slide_file):
 
     patch_info_all = prepare_patching(tile_size, mask_size, dimensions2, level, tissue_mask, len(weight_paths))
     batch_size = 32
-    n_batches = int(np.ceil(patch_info_all[0].qsize() / batch_size))
+    n_batches = int(np.ceil(patch_info_all.qsize() / batch_size))
 
     # create writers
     segmentation_writer = WholeSlideMaskWriter()
@@ -249,7 +258,7 @@ def seg_inference(image_path, tissue_mask_path, slide_file):
     print("Created segmentation writer")
     
     # add loop with batches of batches....
-    batches_per_loop = 50
+    batches_per_loop = 35
     if n_batches > batches_per_loop:
         n_loops = int(np.ceil(n_batches/batches_per_loop))
         batch_no = 0
@@ -259,18 +268,35 @@ def seg_inference(image_path, tissue_mask_path, slide_file):
             else:
                 n_iters = batches_per_loop
 
+            pbar_format = "Pre-processing cases... |{bar}| {n_fmt}/{total_fmt}[{elapsed}<{remaining},{rate_fmt}]"
+            pbarx = tqdm(
+                total=n_iters, bar_format=pbar_format, ascii=True, position=0
+            )
+
+            # Start multi-processing
+            pool = Pool(processes=8, initargs=(RLock(),), initializer=tqdm.set_lock)
+
+            def pbarx_update(*a):
+                pbarx.update()
+
+            jobs = [pool.apply_async(preprocess_batch, args=(image_path, tissue_mask_path, batch_size, patch_info_all, level, tile_size), callback=pbarx_update) for _ in range(n_iters)]
+            pool.close()
+            batches = [job.get() for job in jobs]
+            pbarx.close()
+
             loop_raw_preds = []
             accumulated_output = []
             for idx, weights in enumerate(weight_paths):
                 segModel.load_weights(weights)
-                for b in tqdm(range(n_iters), desc=f'Segmenting loop {l}/{n_loops} with weights: {weights}'):
-                    images, tissue, x_coords, y_coords = get_batch(batch_size, patch_info_all[idx], image, tissue_mask, level, tile_size)
+                for b in tqdm(range(n_iters), desc=f'Segmenting loop {l+1}/{n_loops} with weights: {weights}'):
+                    images, tissue, x_coords, y_coords = batches[b]
                     raw_preds = segModel.predict_on_batch(images)
                     loop_raw_preds.append(raw_preds[...,1:])
                     if idx == len(weight_paths)-1:
                         accum_raw_pred = [loop_raw_preds[i*n_iters+b] for i in range(len(weight_paths))]
                         accumulated_output.append([accum_raw_pred, tissue.astype('uint8'), x_coords, y_coords])
 
+            del loop_raw_preds, jobs, batches
             pbar_format = "Post-processing cases... |{bar}| {n_fmt}/{total_fmt}[{elapsed}<{remaining},{rate_fmt}]"
             pbarx = tqdm(
                 total=n_iters, bar_format=pbar_format, ascii=True, position=0
@@ -287,12 +313,16 @@ def seg_inference(image_path, tissue_mask_path, slide_file):
             result_list = [job.get() for job in jobs]
             pbarx.close()
 
+            del accumulated_output, jobs
+
             for results in tqdm(result_list, desc='Saving segmentation...'):
                 seg_masks, x_coords, y_coords = results
                 for idx in range(len(x_coords)):
                     x1, y1 = x_coords[idx], y_coords[idx]
                     segmentation_writer.write_tile(tile=seg_masks[idx], coordinates=(int(x1*2), int(y1*2)))
             
+            del result_list
+
             batch_no += 1
             if batch_no % batches_per_loop == 0:
                 break
