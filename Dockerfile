@@ -75,7 +75,6 @@ COPY --chown=algorithm:algorithm utils.py /opt/algorithm/
 COPY --chown=algorithm:algorithm rw.py /opt/algorithm/
 COPY --chown=algorithm:algorithm nms.py /opt/algorithm/
 COPY --chown=algorithm:algorithm process.py /opt/algorithm/
-COPY --chown=algorithm:algorithm data_loader.py /opt/algorithm/
 COPY --chown=algorithm:algorithm testinput /input/
 COPY --chown=algorithm:algorithm testinput/images /input/images/
 
